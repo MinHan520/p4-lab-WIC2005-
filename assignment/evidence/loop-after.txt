@@ -1,0 +1,66 @@
+Done
+==========
+TABLE ENTRIES
+**********
+Dumping entry 0x0
+Match key:
+* myTunnel.dst_id     : EXACT     0001
+Action entry: MyIngress.myTunnel_forward - 01
+**********
+Dumping entry 0x1
+Match key:
+* myTunnel.dst_id     : EXACT     0002
+Action entry: MyIngress.myTunnel_forward - 02
+**********
+Dumping entry 0x2
+Match key:
+* myTunnel.dst_id     : EXACT     0003
+Action entry: MyIngress.myTunnel_forward - 03
+==========
+Dumping default entry
+Action entry: MyIngress.drop - 
+==========
+$ table_modify MyIngress.myTunnel_exact MyIngress.myTunnel_forward 2 1
+Done
+Modifying entry 2 for exact match table MyIngress.myTunnel_exact
+--- count 0 (before sending) ---
+logs/s1.txt:782
+logs/s2.txt:779
+$ h1 send.py 10.16.0.3 "loop" --tunnel 3 --hops 8
+###[ Ethernet ]### 
+  dst       = ff:ff:ff:ff:ff:ff
+  src       = 00:00:00:00:00:01
+  type      = 0x1212
+###[ MyTunnel ]### 
+     proto_id  = 2048
+     dst_id    = 3
+     hop_limit = 8
+###[ IP ]### 
+        version   = 4
+        ihl       = 5
+        tos       = 0x0
+        len       = 32
+        id        = 1
+        flags     = 
+        frag      = 0
+        ttl       = 64
+        proto     = udp
+        chksum    = 0x66a9
+        src       = 10.16.0.1
+        dst       = 10.16.0.3
+        \options   \
+###[ UDP ]### 
+           sport     = 4321
+           dport     = 4321
+           len       = 12
+           chksum    = 0xee10
+###[ Raw ]### 
+              load      = 'loop'
+
+Sent from h1-eth0.
+--- count 1 ---
+logs/s1.txt:787
+logs/s2.txt:783
+--- count 2 (5 s later) ---
+logs/s1.txt:787
+logs/s2.txt:783
