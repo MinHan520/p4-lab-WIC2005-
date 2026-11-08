@@ -1,4 +1,4 @@
-sh echo '--- logs/h2.txt and logs/h3.txt ---' >> assignment/evidence/delivery.txt$ h1 send.py 10.16.0.3 "to h2" --tunnel 2 --hops 10
+$ h1 send.py 10.16.0.3 "to h2" --tunnel 2 --hops 10
 ###[ Ethernet ]### 
   dst       = ff:ff:ff:ff:ff:ff
   src       = 00:00:00:00:00:01

@@ -30,26 +30,3 @@ logs/s2.txt:647
 --- count 2 (5 s later) ---
 logs/s1.txt:1318
 logs/s2.txt:1316
-$ table_dump after modify
-Done
-==========
-TABLE ENTRIES
-**********
-Dumping entry 0x0
-Match key:
-* myTunnel.dst_id     : EXACT     0001
-Action entry: MyIngress.myTunnel_forward - 01
-**********
-Dumping entry 0x1
-Match key:
-* myTunnel.dst_id     : EXACT     0002
-Action entry: MyIngress.myTunnel_forward - 02
-**********
-Dumping entry 0x2
-Match key:
-* myTunnel.dst_id     : EXACT     0003
-Action entry: MyIngress.myTunnel_forward - 03
-==========
-Dumping default entry
-Action entry: MyIngress.drop - 
-==========

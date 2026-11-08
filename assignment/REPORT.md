@@ -54,30 +54,25 @@ I added one field to the tunnel header:
 
 ## 3. Implementation
 
-- **`tunnel.p4`:** added `bit<8> hop_limit` as the last field of `myTunnel_t`. In the ingress `apply` block, the tunnel branch now drops the packet if `hop_limit == 0`. Otherwise it does `hdr.myTunnel.hop_limit = hdr.myTunnel.hop_limit - 1` and then applies `myTunnel_exact`. The IPv4 branch is unchanged. The check sits before the decrement, not inside `myTunnel_forward`, so the limit is enforced even if the table lookup later misses.
+- **`tunnel.p4`:** added `bit<8> hop_limit` as the last field of `myTunnel_t`. In the ingress `apply` block, the tunnel branch now drops the packet if `hop_limit == 0`. Otherwise it does `hdr.myTunnel.hop_limit = hdr.myTunnel.hop_limit - 1` and then applies `myTunnel_exact`. The IPv4 branch is unchanged. The check sits before the decrement, not inside `myTunnel_forward`, so the limit is enforced whatever action the control plane installs in `myTunnel_exact`: it doesn't depend on every table entry using the right action.
 - **`send.py`:** imported `ByteField`, added `ByteField("hop_limit", 64)` to the `MyTunnel` scapy class, and added a `--hops H` option (default 64, rejected outside 0–255). Its value goes into the tunnel header.
 - **`receive.py`:** same `MyTunnel` class, and tunnelled packets are now printed as `tunnelled, dst_id=…, hop_limit=…`.
 - `tunnel_v1.p4` is the untouched finished lab program, kept for the mixed-rollout test.
 
 ## 4. Evidence: it works
 
-**Delivery** (`evidence/delivery.txt`). I sent tunnelled packets with `--hops 10`:
-
-- to exit 2: `logs/h2.txt` shows `tunnelled, dst_id=2, hop_limit=[FILL: 8]`;
-- to exit 3: `logs/h3.txt` shows `tunnelled, dst_id=3, hop_limit=[FILL: 8]`.
-
-Each packet crossed two switches, so 10 − 2 = 8, as designed. Plain IPv4 still works: `h1 ping -c 2 10.16.0.3` got [FILL: 2] replies with TTL 62.
+**Delivery** (`evidence/delivery.txt`). I sent tunnelled packets with `--hops 10`. `logs/h2.txt` shows `tunnelled, dst_id=2, hop_limit=8` with message `'to h2'`, and `logs/h3.txt` shows `tunnelled, dst_id=3, hop_limit=8` with `'to h3'`. Each packet crossed two switches, so 10 − 2 = 8, as designed. The inner IPv4 TTL is still 64 because the tunnel path never runs `ipv4_forward`. Plain IPv4 still works: `h1 ping -c 2 h3` got 2 of 2 replies with TTL 62.
 
 **The loop now ends** (`evidence/loop-after.txt`). In a freshly started network I made the same loop as in section 1 and sent one packet with `--hops 8`:
 
 | Reading | s1 | s2 |
 |---|---|---|
-| Before sending | [FILL] | [FILL] |
-| After | [FILL] | [FILL] |
-| Caused by the loop packet | [FILL: +5] | [FILL: +4] |
-| 5 s later | [FILL: unchanged] | [FILL: unchanged] |
+| Before sending | 782 | 779 |
+| After | 787 | 783 |
+| Caused by the loop packet | +5 | +4 |
+| 5 s later | 787 (unchanged) | 783 (unchanged) |
 
-My design predicts H + 1 = 9 receptions: s1 sees 8, 6, 4, 2 and finally 0 (drop), which is 5; s2 sees 7, 5, 3, 1, which is 4. I measured [FILL: X + Y = total], [FILL: "which matches the design exactly" / explain any difference from the drop rule]. The counts stayed the same 5 seconds later, so the loop stopped. Compare section 1, where the same loop grew by 669 receptions per switch every 5 seconds.
+My design predicts H + 1 = 9 receptions: s1 sees the hop limit arrive as 8, 6, 4, 2 and finally 0, where it drops the packet (5 receptions); s2 sees 7, 5, 3, 1 (4 receptions). I measured 5 + 4 = 9, which matches the design exactly. The counts did not change 5 seconds later, so the loop stopped. Compare section 1, where the same loop grew by 669 receptions per switch every 5 seconds and never ended.
 
 ## 5. Evaluation
 
@@ -85,7 +80,7 @@ My design predicts H + 1 = 9 receptions: s1 sees 8, 6, 4, 2 and finally 0 (drop)
 
 I ran `python3 topo.py --id 5016 --s2-program tunnel_v1.p4`, so s1 ran my new program and s2 ran the old lab program, which only knows the 4-byte header. Evidence: `evidence/mixed.txt`.
 
-**Prediction (written before running).**
+**Prediction (worked out before the run; added to the report afterwards).**
 
 - *Delivery to h2 (`--tunnel 2 --hops 10`):*
     - s1 reads all 5 bytes, decrements `hop_limit` to 9, and forwards.
@@ -114,12 +109,12 @@ I ran `python3 topo.py --id 5016 --s2-program tunnel_v1.p4`, so s1 ran my new pr
 | 19 | `45` | Real start of the IPv4 header |
 | 27 | `40` | IPv4 TTL 64, untouched on the tunnel path |
 | **28** | **`0b`** | **IPv4 protocol: sent as `0x11` (UDP), arrived as `0x0b`** |
-| 28–29 | `0b66` | The checksum s2 computed over its one-byte-shifted view, written over the real protocol byte and the first real checksum byte |
+| 28–29 | `0b66` | The checksum s2 computed over its one-byte-shifted view, written over the real protocol byte (28) and the first real checksum byte (29). Byte 29 happens to keep its original value (`0x66`, from the sent checksum `0x66a8`), so the visible change is the protocol byte; the checksum `0x66a8` no longer matches the modified header |
 | 47–51 | `mixed` | Payload intact |
 
 This matches my prediction. Forwarding worked and the payload arrived, but the inner IPv4 header was corrupted: h2 no longer sees UDP, and the IPv4 checksum is wrong. No switch dropped the packet or logged an error. It is a **silent failure**. Appending the field kept the old switch *forwarding* correctly, but not *processing* correctly, because the old program still parses and rewrites the bytes after the tunnel header at the wrong offset.
 
-**Result: loop.** With s2's exit 3 pointed back to s1 and one packet sent with `--hops 8`, the counts went from 789 / 785 (s1 / s2) to 798 / 793 and then stayed there. That is **s1 +9 and s2 +8 = 17 receptions**, exactly as predicted. s1 saw the hop limit arrive as 8, 7, …, 1, then 0 and dropped it. s2 bounced it back 8 times without changing it. With both switches upgraded (section 4) the same loop took 9 receptions. A half-upgraded network still stops the loop, but only because one switch on the loop enforces the limit, and it takes about twice as many passes. A loop made only of old switches would never end. (A second loop send failed because of a typo, `spython3`, so only one loop packet was sent; the file notes this.)
+**Result: loop.** With s2's exit 3 pointed back to s1 and one packet sent with `--hops 8`, the counts went from 789 / 785 (s1 / s2) to 798 / 793 and then stayed there. That is **s1 +9 and s2 +8 = 17 receptions**, exactly as predicted. s1 saw the hop limit arrive as 8, 7, …, 1, then 0 and dropped it. s2 bounced it back 8 times without changing it. With both switches upgraded (section 4) the same loop took 9 receptions. A half-upgraded network still stops the loop, but only because one switch on the loop enforces the limit, and it takes about twice as many passes. A loop made only of old switches would never end. (A second loop send failed because of a typo, `spython3`, so only one loop packet was sent; `mixed.txt` notes this.)
 
 ### b) Rolling out a header change safely
 

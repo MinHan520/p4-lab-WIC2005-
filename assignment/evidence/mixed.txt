@@ -1,18 +1,26 @@
-###[ Ethernet ]### 
+# C5 mixed rollout: s1 runs tunnel.p4 (with hop_limit), s2 runs tunnel_v1.p4 (old lab program)
+# python3 topo.py --id 5016 --s2-program tunnel_v1.p4
+# *** Mixed rollout: s1 runs tunnel.p4, s2 runs tunnel_v1.p4
+
+========== Part 1: delivery to h2 ==========
+
+$ h2 tcpdump -c 1 -XX -ni h2-eth0 ether proto 0x1212 > logs/h2cap.txt 2>&1 &
+$ h1 python3 send.py 10.16.0.3 "mixed" --tunnel 2 --hops 10
+###[ Ethernet ]###
   dst       = ff:ff:ff:ff:ff:ff
   src       = 00:00:00:00:00:01
   type      = 0x1212
-###[ MyTunnel ]### 
+###[ MyTunnel ]###
      proto_id  = 2048
      dst_id    = 2
      hop_limit = 10
-###[ IP ]### 
+###[ IP ]###
         version   = 4
         ihl       = 5
         tos       = 0x0
         len       = 33
         id        = 1
-        flags     = 
+        flags     =
         frag      = 0
         ttl       = 64
         proto     = udp
@@ -20,72 +28,39 @@
         src       = 10.16.0.1
         dst       = 10.16.0.3
         \options   \
-###[ UDP ]### 
+###[ UDP ]###
            sport     = 4321
            dport     = 4321
            len       = 13
            chksum    = 0x801f
-###[ Raw ]### 
+###[ Raw ]###
               load      = 'mixed'
 
 Sent from h1-eth0.
---- tcpdump at h2 ---
-tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
-listening on h2-eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
-17:18:49.215285 00:00:00:00:00:01 > ff:ff:ff:ff:ff:ff, ethertype Unknown (0x1212), length 52: 
-	0x0000:  ffff ffff ffff 0000 0000 0001 1212 0800  ................
-	0x0010:  0002 0945 0000 2100 0100 0040 0b66 a80a  ...E..!....@.f..
-	0x0020:  1000 010a 1000 0310 e110 e100 0d80 1f6d  ...............m
-	0x0030:  6978 6564                                ixed
-1 packet captured
-1 packet received by filter
-0 packets dropped by kernel
---- logs/h2.txt ---
-Listening on h2-eth0...
-###[ Ethernet ]### 
-  dst       = ff:ff:ff:ff:ff:ff
-  src       = 00:00:00:00:00:01
-  type      = 0x1212
-###[ MyTunnel ]### 
-     proto_id  = 2048
-     dst_id    = 2
-     hop_limit = 10
-###[ IP ]### 
-        version   = 4
-        ihl       = 5
-        tos       = 0x0
-        len       = 33
-        id        = 1
-        flags     = 
-        frag      = 0
-        ttl       = 64
-        proto     = udp
-        chksum    = 0x66a8
-        src       = 10.16.0.1
-        dst       = 10.16.0.3
-        \options   \
-###[ UDP ]### 
-           sport     = 4321
-           dport     = 4321
-           len       = 13
-           chksum    = 0x801f
-###[ Raw ]### 
-              load      = 'mixed'
 
-Sent from h1-eth0.
 --- tcpdump at h2 ---
 tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
 listening on h2-eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
-17:21:43.294523 00:00:00:00:00:01 > ff:ff:ff:ff:ff:ff, ethertype Unknown (0x1212), length 52: 
-	0x0000:  ffff ffff ffff 0000 0000 0001 1212 0800  ................
-	0x0010:  0002 0945 0000 2100 0100 0040 0b66 a80a  ...E..!....@.f..
-	0x0020:  1000 010a 1000 0310 e110 e100 0d80 1f6d  ...............m
-	0x0030:  6978 6564                                ixed
+17:21:43.294523 00:00:00:00:00:01 > ff:ff:ff:ff:ff:ff, ethertype Unknown (0x1212), length 52:
+        0x0000:  ffff ffff ffff 0000 0000 0001 1212 0800  ................
+        0x0010:  0002 0945 0000 2100 0100 0040 0b66 a80a  ...E..!....@.f..
+        0x0020:  1000 010a 1000 0310 e110 e100 0d80 1f6d  ...............m
+        0x0030:  6978 6564                                ixed
 1 packet captured
 1 packet received by filter
 0 packets dropped by kernel
+
+# Byte 18 = 0x09: hop_limit after s1 (10 -> 9); s2 (old) did not touch it.
+# Byte 28 = 0x0b: IPv4 protocol, sent as 0x11 (UDP). Bytes 28-29 = 0x0b66 is the checksum
+# s2 wrote into its one-byte-shifted view of the IPv4 header.
+
 --- logs/h2.txt ---
 Listening on h2-eth0...
+# receive.py printed nothing: the packet is no longer UDP.
+
+========== Part 2: the loop with an old s2 ==========
+
+$ ./p4cli s2 table_dump MyIngress.myTunnel_exact
 Done
 ==========
 TABLE ENTRIES
@@ -106,28 +81,33 @@ Match key:
 Action entry: MyIngress.myTunnel_forward - 03
 ==========
 Dumping default entry
-Action entry: MyIngress.drop - 
+Action entry: MyIngress.drop -
 ==========
+
+$ ./p4cli s2 "table_modify MyIngress.myTunnel_exact MyIngress.myTunnel_forward 2 1"
 Done
 Modifying entry 2 for exact match table MyIngress.myTunnel_exact
---- count 0 ---
+
+--- count before the loop packet ---
 logs/s1.txt:789
 logs/s2.txt:785
-###[ Ethernet ]### 
+
+$ h1 python3 send.py 10.16.0.3 "loop" --tunnel 3 --hops 8
+###[ Ethernet ]###
   dst       = ff:ff:ff:ff:ff:ff
   src       = 00:00:00:00:00:01
   type      = 0x1212
-###[ MyTunnel ]### 
+###[ MyTunnel ]###
      proto_id  = 2048
      dst_id    = 3
      hop_limit = 8
-###[ IP ]### 
+###[ IP ]###
         version   = 4
         ihl       = 5
         tos       = 0x0
         len       = 32
         id        = 1
-        flags     = 
+        flags     =
         frag      = 0
         ttl       = 64
         proto     = udp
@@ -135,15 +115,17 @@ logs/s2.txt:785
         src       = 10.16.0.1
         dst       = 10.16.0.3
         \options   \
-###[ UDP ]### 
+###[ UDP ]###
            sport     = 4321
            dport     = 4321
            len       = 12
            chksum    = 0xee10
-###[ Raw ]### 
+###[ Raw ]###
               load      = 'loop'
 
 Sent from h1-eth0.
+
+$ ./p4cli s2 table_dump MyIngress.myTunnel_exact     (after the modify)
 Done
 ==========
 TABLE ENTRIES
@@ -164,16 +146,24 @@ Match key:
 Action entry: MyIngress.myTunnel_forward - 01
 ==========
 Dumping default entry
-Action entry: MyIngress.drop - 
+Action entry: MyIngress.drop -
 ==========
-Done
-Modifying entry 2 for exact match table MyIngress.myTunnel_exact
---- count 0 ---
+
+# A second send attempt failed with a typo (bash: spython3: command not found),
+# so only ONE loop packet was sent. All readings below are after that one packet.
+
+--- count after the loop packet ---
 logs/s1.txt:798
 logs/s2.txt:793
---- count 1 ---
+
+--- count 2 s later ---
 logs/s1.txt:798
 logs/s2.txt:793
---- count 2 (5 s later) ---
+
+--- count 5 s later ---
 logs/s1.txt:798
 logs/s2.txt:793
+
+# Loop packet caused s1 +9, s2 +8 = 17 receptions, then stopped (counts unchanged).
+# Predicted: s1 sees hop_limit 8..1 (forwards) then 0 (drops) = 9; s2 (old) bounces it 8 times = 17.
+# With both switches upgraded (C4, loop-after.txt) the same --hops 8 loop took 9 receptions.

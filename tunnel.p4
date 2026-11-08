@@ -1,7 +1,7 @@
-/* Week 5 lab — IPv4 forwarding, plus a custom tunnel header.
+/* Week 5 assignment — IPv4 forwarding plus a custom tunnel header with a hop limit.
  *
- * Step 4 complete: the parser recognises the tunnel header and the deparser emits it.
- * The ingress control still forwards by IPv4 only (Step 5 changes that).
+ * Tunnelled packets carry hop_limit: a switch drops a packet whose hop_limit arrives
+ * as 0, otherwise it subtracts 1 and forwards by dst_id. Plain IPv4 is unchanged.
  */
 #include <core.p4>
 #include <v1model.p4>
@@ -119,14 +119,6 @@ control MyIngress(inout headers hdr,
         default_action = drop();
     }
 
-    // apply {
-    //     // Step 5 will replace this block so tunnelled packets use myTunnel_exact.
-    //     if (hdr.ipv4.isValid()) {
-    //         ipv4_lpm.apply();
-    //     } else {
-    //         drop();
-    //     }
-    // }
     apply {
     if (hdr.myTunnel.isValid()) {
         if (hdr.myTunnel.hop_limit == 0) {
