@@ -1,8 +1,7 @@
-/* Week 5 lab — IPv4 forwarding, plus a custom tunnel header that you will finish.
+/* Week 5 lab — IPv4 forwarding, plus a custom tunnel header.
  *
- * As supplied, this program forwards IPv4 by longest-prefix match. The tunnel header, its
- * table and its action are already declared; Steps 4–6 of the lab connect them to the
- * parser, the ingress control and the deparser. Look for the TODO comments.
+ * Step 4 complete: the parser recognises the tunnel header and the deparser emits it.
+ * The ingress control still forwards by IPv4 only (Step 5 changes that).
  */
 #include <core.p4>
 #include <v1model.p4>
@@ -61,12 +60,18 @@ parser MyParser(packet_in packet,
         packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.etherType) {
             TYPE_IPV4: parse_ipv4;
-            // TODO (Step 4): send TYPE_MYTUNNEL packets to a parse_myTunnel state
+            TYPE_MYTUNNEL: parse_myTunnel;
             default: accept;
         }
     }
 
-    // TODO (Step 4): add the parse_myTunnel state here
+    state parse_myTunnel {
+        packet.extract(hdr.myTunnel);
+        transition select(hdr.myTunnel.proto_id) {
+            TYPE_IPV4: parse_ipv4;
+            default: accept;
+        }
+    }
 
     state parse_ipv4 {
         packet.extract(hdr.ipv4);
@@ -113,14 +118,23 @@ control MyIngress(inout headers hdr,
         default_action = drop();
     }
 
+    // apply {
+    //     // Step 5 will replace this block so tunnelled packets use myTunnel_exact.
+    //     if (hdr.ipv4.isValid()) {
+    //         ipv4_lpm.apply();
+    //     } else {
+    //         drop();
+    //     }
+    // }
     apply {
-        // TODO (Step 5): tunnelled packets should use myTunnel_exact instead
-        if (hdr.ipv4.isValid()) {
-            ipv4_lpm.apply();
-        } else {
-            drop();
-        }
+    if (hdr.myTunnel.isValid()) {
+        myTunnel_exact.apply();
+    } else if (hdr.ipv4.isValid()) {
+        ipv4_lpm.apply();
+    } else {
+        drop();
     }
+}
 }
 
 /*************************** EGRESS ***************************/
@@ -151,7 +165,7 @@ control MyComputeChecksum(inout headers hdr, inout metadata meta) {
 control MyDeparser(packet_out packet, in headers hdr) {
     apply {
         packet.emit(hdr.ethernet);
-        // TODO (Step 4): emit the tunnel header (only valid headers are written)
+        packet.emit(hdr.myTunnel);   // only written when the packet had a tunnel header
         packet.emit(hdr.ipv4);
     }
 }
