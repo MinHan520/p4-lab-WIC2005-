@@ -1,16 +1,16 @@
 # Week 5 assignment — Put a limit on the tunnel
 
-Student ID (last 4 digits only): **NNNN**
+Student ID (last 4 digits only): **5016**
 
 Write each section in your own words, about your own runs. Quote the evidence files in
 `assignment/evidence/` that support each point. Delete the instructions in `<!-- -->` as you go.
 
 ## 1. Analysis: the loop
 
-<!-- How did you create the tunnel loop (which entry, on which switch, which commands)?
-     What did the switch logs show over time, with numbers from loop-before.txt?
-     Then look at the IPv4 path in tunnel.p4: it decrements the TTL. Does that stop an IPv4
-     loop in this program? Check the code, and explain what happens when TTL reaches 0. -->
+Reading	s1	s2
+Count 1	649	647
+Count 2 (+5 s)	1318	1316
+Growth in 5 s	+669	+669
 
 ## 2. Design: the hop limit
 
@@ -47,10 +47,7 @@ Write each section in your own words, about your own runs. Quote the evidence fi
 
 ## AI use
 
-<!-- This assignment is Level 3 (Open): AI use is allowed if you declare it. State which tools you
-     used (or "None") and what each did — for example "ChatGPT explained the bmv2 log format;
-     the first draft of the hop-limit check came from Copilot, which I then changed and tested".
-     Be ready to explain any part of your work yourself. -->
+Level 3 AI Usage. I utilise Claude AI to understand the lab and assit in my debugging. 
 
 ## Evidence files
 
